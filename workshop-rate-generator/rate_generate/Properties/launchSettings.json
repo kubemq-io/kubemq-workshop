@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "rate_generate": {
+      "commandName": "Project",
+      "environmentVariables": {
+        "KubemqQueue": "asdaa"
+      }
+    }
+  }
+}
