@@ -8,4 +8,4 @@ CMDChannel    - The name of the channel to sign under for commands to start/stop
 
 AutoStart     - Advance - if needed to send rate on startup *Default will be - true.
 
-RateInterval  - The interval that rates will be sent under *Default will be - 500.
+RateInterval  - The interval that rates will be sent under *Default will be - 1000.
