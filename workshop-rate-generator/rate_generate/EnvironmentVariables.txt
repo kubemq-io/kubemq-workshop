@@ -1,0 +1,11 @@
+KubemqAddress - Kubemq Address *Default will be - localhost:50000.
+
+KubemqClient  - The name of the client that the program will signed under *Default will be - ratesstest.
+  
+KubemqQueue   - The name of the queue the rates will publish to *Default will be - rates-Queue.
+
+CMDChannel    - The name of the channel to sign under for commands to start/stop *Default will be - rateCMD.
+
+AutoStart     - Advance - if needed to send rate on startup *Default will be - true.
+
+RateInterval  - The interval that rates will be sent under *Default will be - 500.

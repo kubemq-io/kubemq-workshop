@@ -3,7 +3,7 @@
     "rate_generate": {
       "commandName": "Project",
       "environmentVariables": {
-        "KubemqQueue": "asdaa"
+        "KubemqQueue": "rates-Queue"
       }
     }
   }

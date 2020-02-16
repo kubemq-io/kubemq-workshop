@@ -16,9 +16,9 @@ namespace rate_generate
         internal double sell;
         internal int id;
         private static System.Timers.Timer rateChanger;
-        public Rates(string pName, int pId)
+        public Rates(string pName, int pId,bool pIsActive= true)
         {
-            isActive = true;
+            isActive = pIsActive;
             rateName = pName;
             buy = GetRateInitialValue();
             sell = GetRateInitialValue();

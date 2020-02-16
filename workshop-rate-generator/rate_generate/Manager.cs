@@ -4,6 +4,8 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Timers;
 
 namespace rate_generate
@@ -14,7 +16,6 @@ namespace rate_generate
     /// </summary>
     class Manager
     {
-        public static Random rnd;
         private Dictionary<string, Rates> rateCollection;
         private int RateInterval;
         private static System.Timers.Timer timer;
@@ -22,29 +23,49 @@ namespace rate_generate
         private ILogger<Manager> _logger;
         private string QueueName;
         private string ClientID;
+        private string CMDChannel;
+        private bool AutoStart;
         private KubeMQ.SDK.csharp.Queue.Queue queue;
         private string KubemqAddress;
+        internal static Random rnd;
+        private CancellationTokenSource source;
+        private CancellationToken token;
 
         public Manager(IConfiguration configuration, ILogger<Manager> logger)
         {
             _logger = logger;
             _config = configuration;
             rnd = new Random();
-
+            source = new CancellationTokenSource();
+            token = source.Token;
             QueueName = GetKubemqQueue();
             RateInterval = GetRateInterval();
             ClientID = GetKubemqClient();
             KubemqAddress = GetKubemqAddress();
+            CMDChannel = GetCMDChannelName();
+            AutoStart = GetAutoStart();
+
+
+            Task.Run(() =>
+            {
+                SubscribeToRequests();
+            });
             try
             {
                 queue = new KubeMQ.SDK.csharp.Queue.Queue(QueueName, ClientID, KubemqAddress);
+                KubeMQ.Grpc.PingResult pingResult=  queue.Ping();
+                queue.AckAllQueueMessagesResponse();
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex.Message);
+                _logger.LogCritical($"failed to connect to kubemq on err ${ex.Message}");
+                source.Cancel(false);
+                System.Environment.Exit(1);
+
             }
             startSendingRates();
             _logger.LogInformation($"initialized Manger sending rates to channel: {QueueName}");
+
 
         }
         /// <summary>
@@ -54,13 +75,13 @@ namespace rate_generate
         {
             rateCollection = new Dictionary<string, Rates>
             {
-                {"EURUSD", new Rates("EURUSD",1) },
-                {"AUDUSD",new Rates("AUDUSD",2) },
-                {"USDJPY", new Rates("USDJPY",3) },
-                {"CHFJPY", new Rates("CHFJPY",4) },
-                {"NZDUSD", new Rates("NZDUSD",5) },
-                {"GBPJPY", new Rates("GBPJPY",6) },
-                {"USDILS",new Rates("USDILS",7) }
+                {"EURUSD", new Rates("EURUSD",1,AutoStart) },
+                {"AUDUSD",new Rates("AUDUSD",2,AutoStart) },
+                {"USDJPY", new Rates("USDJPY",3,AutoStart) },
+                {"CHFJPY", new Rates("CHFJPY",4,AutoStart) },
+                {"NZDUSD", new Rates("NZDUSD",5,AutoStart) },
+                {"GBPJPY", new Rates("GBPJPY",6,AutoStart) },
+                {"USDILS",new Rates("USDILS",7,AutoStart) }
             };
             _logger.LogInformation($"Starting to generate rates");
             SetRateTimer();
@@ -122,6 +143,42 @@ namespace rate_generate
             return client_name;
         }
 
+        private string GetCMDChannelName()
+        {
+
+            // get interval from appsettings.json
+            string cmd_name = Convert.ToString(_config["CMDChannel"]);
+
+
+            if (string.IsNullOrEmpty(cmd_name))
+            {
+
+                _logger.LogError("failed to set 'CMDChannel'");
+                throw new Exception("failed to set 'CMDChannel'");
+            }
+            _logger.LogDebug("'CMDChannel' was set to {0}", cmd_name);
+
+            return cmd_name;
+        }
+
+        private bool GetAutoStart()
+        {
+
+            // get interval from appsettings.json
+            string AutoStart = Convert.ToString(_config["AutoStart"]);
+            bool start;
+
+            if (!bool.TryParse(AutoStart, out start))
+            {
+
+                _logger.LogError("failed to set 'AutoStart setting auto start to true'");
+            }
+
+            _logger.LogDebug("'AutoStart' was set to {0}", AutoStart);
+
+            return start;
+        }
+
         private int GetRateInterval()
         {
 
@@ -149,7 +206,7 @@ namespace rate_generate
         private void SetRateTimer()
         {
 
-            timer = new Timer(RateInterval);
+            timer = new System.Timers.Timer(RateInterval);
 
             timer.Elapsed += OnRateSend;
             timer.AutoReset = true;
@@ -192,10 +249,6 @@ namespace rate_generate
                 {
                     _logger.LogInformation($"message enqueue error, error:{res.Error}");
                 }
-                else
-                {
-                    _logger.LogInformation($"message sent at, {res.SentAt}");
-                }
             }
             catch (Exception ex)
             {
@@ -203,6 +256,84 @@ namespace rate_generate
             }
 
         }
+        private void SubscribeToRequests()
+        {
+            /// Init a new CommandQuery subscriber on the KubeMQ to receive commands
+            KubeMQ.SDK.csharp.CommandQuery.Responder responder = new KubeMQ.SDK.csharp.CommandQuery.Responder(KubemqAddress);
+
+            Console.WriteLine($"init KubeMQ CommandQuery subscriber :{CMDChannel}");
+
+            responder.SubscribeToRequests(new KubeMQ.SDK.csharp.Subscription.SubscribeRequest()
+            {
+                SubscribeType = KubeMQ.SDK.csharp.Subscription.SubscribeType.Commands,
+                Channel = CMDChannel,
+                ClientID = ClientID
+
+            }, (KubeMQ.SDK.csharp.CommandQuery.RequestReceive request) =>
+            {
+                Console.WriteLine($"CommandQuery RequestReceive :{request}");
+                KubeMQ.SDK.csharp.CommandQuery.Response response = null;
+
+                string strMsg = string.Empty;
+                object body = System.Text.Encoding.Default.GetString(request.Body);
+                RateRequest req = new RateRequest();
+                if (request.Metadata== "some_metadata2")
+                {
+                    try
+                    {
+
+                        req = JsonConvert.DeserializeObject<RateRequest>(Encoding.UTF8.GetString(request.Body));
+                        rateCollection[req.Name].isActive = req.Active;
+                        queue.AckAllQueueMessagesResponse();
+                        response = new KubeMQ.SDK.csharp.CommandQuery.Response(request)
+                        {
+                            Body = Encoding.UTF8.GetBytes("o.k"),
+                            Error = "None",
+                            ClientID = ClientID,
+                            Executed = true,
+                            Metadata = "OK",
+                            Timestamp = DateTime.UtcNow,
+                        };
+                        _logger.LogInformation($"Returned response about instrument ${req.Name} to ${req.Active}");
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError($"Failed to parse request on err :{ex.Message}");
+                        response = new KubeMQ.SDK.csharp.CommandQuery.Response(request)
+                        {
+                            Body = Encoding.UTF8.GetBytes("o.k"),
+                            Error = ex.Message,
+                            ClientID = ClientID,
+                            Executed = true,
+                            Metadata = "Failed",
+                            Timestamp = DateTime.UtcNow,
+                        };
+                    }
+                }
+                else
+                {
+                    foreach (var rate in this.rateCollection)
+                    {
+                        rate.Value.isActive = true;
+                        _logger.LogInformation($"Started rate on ${rate.Key}");
+                    }
+                    response = new KubeMQ.SDK.csharp.CommandQuery.Response(request)
+                    {
+                        Body = Encoding.UTF8.GetBytes("started"),
+                        Error = "None",
+                        ClientID = ClientID,
+                        Executed = true,
+                        Metadata = "OK",
+                        Timestamp = DateTime.UtcNow,
+                    };
+                }
+               
+                return response;
+            },null,token);
+
+            return;
+        }
+
     }
     /// <summary>
     /// Rate sending to the Client
@@ -214,6 +345,16 @@ namespace rate_generate
         public string Name { get; set; }
         public string Ask { get; set; }
         public string Bid { get; set; }
+    }
+
+    /// <summary>
+    /// Request Receiving from the Client
+    /// </summary>
+    [Serializable]
+    public class RateRequest
+    {
+        public string Name { get; set; }
+        public bool Active { get; set; }
     }
 
 }

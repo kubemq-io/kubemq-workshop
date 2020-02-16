@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/kubemq-io/kubemq-go"
 )
 
 func main() {
+	// 1. Create kubemq client.
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	client, err := kubemq.NewClient(ctx,
@@ -19,24 +21,27 @@ func main() {
 		log.Fatal(err)
 	}
 	defer client.Close()
+	//startSendingRates(ctx, client)
 	i := 0
-	channel := "testing_queue_channel"
+	queueName := "rates-Queue"
 	for {
-
+		// 2. Receive queue messages from queue <queueName> with max number of messages of 32 and wait time of 1 second.
 		receiveResult, err := client.NewReceiveQueueMessagesRequest().
-			SetChannel(channel).
-			SetMaxNumberOfMessages(1).
+			SetChannel(queueName).
+			SetMaxNumberOfMessages(32).
 			SetWaitTimeSeconds(1).
 			Send(ctx)
 		if err != nil {
 			log.Fatal(err)
 		}
 		log.Printf("Received %d Messages:\n", receiveResult.MessagesReceived)
+		// 3.For each dequeued message will send a single event to store on the kubemq
 		for _, msg := range receiveResult.Messages {
 			i++
+			// 4.Create and publish the events to kubemq store.
 			result, err := client.ES().
 				SetId(fmt.Sprintf("event-store-%d", i)).
-				SetChannel("channelName").
+				SetChannel("ratesstore").
 				SetMetadata("some-metadata").
 				SetBody(msg.Body).
 				AddTag("seq", fmt.Sprintf("%d", i)).
@@ -46,6 +51,24 @@ func main() {
 			}
 			log.Printf("Sending event #%d: Result: %t", i, result.Sent)
 		}
+		//Wait time.
+		time.Sleep(500 * time.Millisecond)
 	}
 
+}
+
+//5.Optional - start sending rates command
+func startSendingRates(ctx context.Context, client *kubemq.Client) {
+	channel := "rateCMD"
+	response, err := client.C().
+		SetId("start").
+		SetChannel(channel).
+		SetMetadata("start").
+		SetBody([]byte("start")).
+		SetTimeout(10 * time.Second).
+		Send(ctx)
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Println(response)
 }
