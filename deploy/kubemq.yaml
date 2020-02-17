@@ -1,0 +1,203 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubemq
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kubemq-cluster
+  namespace: kubemq
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kubemq-cluster
+  serviceName: kubemq-cluster
+  template:
+    metadata:
+      annotations:
+        prometheus.io/path: /metrics
+        prometheus.io/port: "8080"
+        prometheus.io/scrape: "true"
+        kubemq.io/deploy-source: "workshop"
+      labels:
+        app: kubemq-cluster
+    spec:
+      containers:
+        - env:
+            - name: CLUSTER_ROUTES
+              value: kubemq-cluster:5228
+            - name: CLUSTER_PORT
+              value: "5228"
+            - name: CLUSTER_ENABLE
+              value: "true"
+            - name: GRPC_PORT
+              value: "50000"
+            - name: REST_PORT
+              value: "9090"
+            - name: KUBEMQ_PORT
+              value: "8080"
+            - name: STORE_DIR
+              value: /store
+          image: kubemq/kubemq:v2.0.0
+          imagePullPolicy: Always
+          name: kubemq-cluster
+          ports:
+            - containerPort: 50000
+              name: grpc-port
+              protocol: TCP
+            - containerPort: 8080
+              name: api-port
+              protocol: TCP
+            - containerPort: 9090
+              name: rest-port
+              protocol: TCP
+            - containerPort: 5228
+              name: cluster-port
+              protocol: TCP
+          resources: {}
+      restartPolicy: Always
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubemq-cluster
+  namespace: kubemq
+spec:
+  ports:
+    - name: cluster-port
+      port: 5228
+      protocol: TCP
+      targetPort: 5228
+  selector:
+    app: kubemq-cluster
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubemq-cluster-api
+  namespace: kubemq
+spec:
+  ports:
+    - name: api-port
+      port: 8080
+      protocol: TCP
+      targetPort: 8080
+  selector:
+    app: kubemq-cluster
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubemq-cluster-grpc
+  namespace: kubemq
+spec:
+  ports:
+    - name: grpc-port
+      port: 50000
+      protocol: TCP
+      targetPort: 50000
+  selector:
+    app: kubemq-cluster
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubemq-cluster-rest
+  namespace: kubemq
+spec:
+  ports:
+    - name: rest-port
+      port: 9090
+      protocol: TCP
+      targetPort: 9090
+  selector:
+    app: kubemq-cluster
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: kubemq
+  name: rate-generator
+  labels:
+    app: rate-generator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rate-generator
+  template:
+    metadata:
+      labels:
+        app: rate-generator
+    spec:
+      containers:
+        - name: rate-generator
+          image: 'kubemq/workshop-rate-generator:v1.0.0'
+          env:
+            - name: KubemqQueue
+              value: rates-Queue
+            - name: KubemqAddress
+              value: 'kubemq-cluster-grpc:50000'
+            - name: KubemqClient
+              value: ratesstest
+            - name: CMDChannel
+              value: rateCMD
+            - name: AutoStart
+              value: 'true'
+            - name: RateInterval
+              value: '1000'
+          imagePullPolicy: Always
+      restartPolicy: Always
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: kubemq
+  name: web-client
+  labels:
+    app: web-client
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: web-client
+  template:
+    metadata:
+      labels:
+        app: web-client
+    spec:
+      containers:
+        - name: web-client
+          image: 'kubemq/workshop-client:v1.0.0'
+          imagePullPolicy: Always
+      restartPolicy: Always
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-client-service
+  namespace: kubemq
+spec:
+  selector:
+    app: web-client
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 80
+      nodePort: 31000
+  type: NodePort
+---

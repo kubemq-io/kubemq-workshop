@@ -2,7 +2,7 @@
 
 ![alt text](https://i.imgur.com/NBYiMoZ.png)
 
-In this workshop you will build a progrem that will receive messages from kubemq-queue and send them to event store.
+In this workshop you will build an application that will receive messages from kubemq-queue and send them to event store.
 
 You will need to listen to queue, take the body (a list of Rate struct , see at #Data) and send them to kubemq event-store .
 
@@ -64,5 +64,4 @@ CMDChannel    - The name of the channel to sign under for commands to start/stop
 AutoStart     - Advance - if needed to send rate on startup *Default will be - true.
 
 RateInterval  - The interval that rates will be sent under *Default will be - 500.
-
 
