@@ -10,7 +10,7 @@
             "request": "launch",
             "preLaunchTask": "build",
             
-            "program": "${workspaceFolder}/kubemq-workshop-csharp/kubemq-workshop-csharp/bin/Debug/netcoreapp3.1/kubemq-workshop-csharp.dll",
+            "program": "${workspaceFolder}/kubemq-workshop-csharp/bin/Debug/netcoreapp3.1/kubemq-workshop-csharp.dll",
             "args": [],
             "cwd": "${workspaceFolder}",
             "stopAtEntry": false,
