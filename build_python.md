@@ -3,7 +3,7 @@
 ### Get SDK
 
 ```
-npm i kubemq-nodejs
+pip install kubemq
 ```
 
 
@@ -11,13 +11,16 @@ npm i kubemq-nodejs
 
 ```
 
-const kubemq = require('kubemq-nodejs');
+from kubemq.queue.message_queue import MessageQueue
+from kubemq.queue.message import Message
+from kubemq.grpc import QueueMessagePolicy
 
- //QueueName filled by rate-generator,  ClientID is the Id logged in kubemq, KubeMQServerAddress is the kubemq address cluster Proxy.
-let QueueName = "rates-Queue", ClientID = "test-queue-client-id", KubeMQServerAddress = "localhost:50000";
+queue_name = "rates-Queue" # queue_name filled by rate-generator.
+client_id = "Queue-test" # client_id is the Id logged in kubemq.
+kube_add = "localhost:50000" #kube_add is the kubemq address cluster Proxy.
 
-//1. Create a kubeMQ Queue to dequeue rates from the workshop-rate-generator container.
-let queue = new kubemq.Queue(KubeMQServerAddress, QueueName, ClientID);
+queue=MessageQueue(queue_name, client_id, kube_add,32,1)
+
 
 ```
 
@@ -25,86 +28,72 @@ let queue = new kubemq.Queue(KubeMQServerAddress, QueueName, ClientID);
 
 ```
 
-const kubemq = require('kubemq-nodejs');
-
- //QueueName filled by rate-generator,  ClientID is the Id logged in kubemq, KubeMQServerAddress is the kubemq address cluster Proxy.
-let QueueName = "rates-Queue", ClientID = "test-queue-client-id", KubeMQServerAddress = "localhost:50000";
-
-
-let queue = new kubemq.Queue(KubeMQServerAddress, QueueName, ClientID);
+from kubemq.queue.message_queue import MessageQueue
+from kubemq.queue.message import Message
+from kubemq.grpc import QueueMessagePolicy
+import time
 
 
-//loop function.
-function myLoop () {
-    //Set Timeout in milliseconds between function run time.
-     setTimeout(function () {
+queue_name = "rates-Queue" # queue_name filled by rate-generator.
+client_id = "Queue-test" # client_id is the Id logged in kubemq.
+kube_add = "localhost:50000" #kube_add is the kubemq address cluster Proxy.
 
-          queue.receiveQueueMessages(32, 1).then(res => {
-               if (res.Error) {
-                   console.log('Message enqueue error, error:' + res.message);
-               } else {
-                   if (res.MessagesReceived) {                    
-                       console.log('Received: ' + res.MessagesReceived);
+queue=MessageQueue(queue_name, client_id, kube_add,32,1)
 
-                       res.Messages.forEach(element => {
-                            console.log(element);
-                       });
-                   } else {
-                       console.log('No messages');
-                   }
-                   myLoop();
-               }
-           }).catch(
-               err => console.log('Error:' + err));
-     }, 500)
-  }
-  myLoop();
+while True:
+    res=queue.receive_queue_messages()
+    for message in res.messages:
+        # message.Body is a Json encoded by the workshop-rate-generator container.
+        print(message.Body)
+        pass
+    # Sleep between dequeue.
+    pass
 ```
 
 ### Send Rates to Events Store
 
 ```
-const kubemq = require('kubemq-nodejs');
+from kubemq.queue.message_queue import MessageQueue
+from kubemq.queue.message import Message
+from kubemq.grpc import QueueMessagePolicy
+from kubemq.events.channel_parameters import ChannelParameters
+from kubemq.events.channel import Channel
+from kubemq.events.event import Event
+import time
 
-//QueueName filled by rate-generator,  ClientID is the Id logged in kubemq, KubeMQServerAddress is the kubemq address cluster Proxy.
-let QueueName = "rates-Queue", ClientID = "test-queue-client-id", KubeMQServerAddress = "localhost:50000";
 
-//1. Create a kubeMQ Queue to dequeue rates from the workshop-rate-generator container.
-let queue = new kubemq.Queue(KubeMQServerAddress, QueueName, ClientID);
-//2. Create store publisher for the kubemq store.
-let storePub = new kubemq.StorePublisher('localhost', '50000', ClientID, 'ratesstore');
 
-//loop function.
-function myLoop () {
-    //Set Timeout in milliseconds between function run time.
-     setTimeout(function () {
-		  // 3. Dequeue 32 messages from the queue with a wait of 1 second.
-          queue.receiveQueueMessages(32, 1).then(res => {
-               if (res.Error) {
-                   console.log('Message enqueue error, error:' + res.message);
-               } else {
-                   if (res.MessagesReceived) {                    
-                       console.log('Received: ' + res.MessagesReceived);
-					    // 4. For each dequeued message will send a single event to store on the kubemq local storage.
-                       res.Messages.forEach(element => {
-						// 5. Create a new event and fill the event body, then Publish event to store to be consumed by the GUI client.
-                            // Message body is a Json encoded by the workshop-rate-generator container.
-                            let eventStore = new kubemq.StorePublisher.Event(element.Body);                                                                                                                                                                                                                                                                                                                                                                                             eventStore.Metadata = 'test store';
-                            storePub.send(eventStore).then(res => {
-                                console.log(res);
-                            });
-                       });
-                   } else {
-                       console.log('No messages');
-                   }
-                   myLoop();
-               }
-           }).catch(
-               err => console.log('Error:' + err));
-     }, 500)
-  }
-  //activeAllRates();
-  myLoop();
+params = ChannelParameters(     
+        channel_name="ratesstore", #channel_name is the event store pulished to be consumed by the GUI client.
+        client_id="ratesstest", #client_id is the Id logged in kubemq.
+        store=True,
+        return_result=False,       
+        kubemq_address="localhost:50000" #kubemq_address is the kubemq address cluster Proxy.
+    )
+
+channel = Channel(params=params)
+
+
+queue_name = "rates-Queue" # queue_name filled by rate-generator.
+client_id = "Queue-test" # client_id is the Id logged in kubemq.
+kube_add = "localhost:50000" #kube_add is the kubemq address cluster Proxy.
+
+
+queue=MessageQueue(queue_name, client_id, kube_add,32,1)
+
+while True:
+
+    res=queue.receive_queue_messages()
+    for message in res.messages:
+        # message.Body is a Json encoded by the workshop-rate-generator container.
+        event = Event(body=message.Body, metadata="rate")
+        channel.send_event(event)
+        print("rate was sent")
+        time.sleep(0.5)
+        pass
+    # Sleep between dequeue.
+    pass
+
 ```
 
 
